@@ -683,6 +683,7 @@ class Dahua_Functions:
 					"params":{
 						"command":msg,
 						},
+					"object":self.OBJECT,
 					"session":self.SessionID
 					}
 				data = self.P2P(json.dumps(query_args))
