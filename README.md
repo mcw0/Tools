@@ -1,5 +1,5 @@
 # Tools
-Some tools
+Some tools (feedback / bug reports are appreciated)
 
 Dahua-JSON-Debug-Console-v2.py
 ---
