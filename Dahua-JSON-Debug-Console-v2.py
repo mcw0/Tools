@@ -365,8 +365,8 @@ class Dahua_Functions:
 
 				if P2P_header[24:28].encode('latin-1') == p32(0x0600f900,endian='big'):
 					self.SessionID = unpack(P2P_header[16:20].encode('latin-1'))
-					self.AuthCode = P2P_header[28:32]
-					self.ErrorCode = binascii.b2a_hex(P2P_header[4:8].encode('latin-1')).decode('latin-1')
+					self.AuthCode = binascii.b2a_hex(P2P_header[28:32].encode('latin-1')).decode('latin-1')
+					self.ErrorCode = binascii.b2a_hex(P2P_header[8:12].encode('latin-1')).decode('latin-1')
 				if len(data) == 32:
 					DEBUG("RECV",P2P_header)
 					if self.lock.locked():
@@ -495,20 +495,26 @@ class Dahua_Functions:
 #		if len(data):
 #			print(data)
 
-		Code = binascii.b2a_hex(self.AuthCode.encode('latin-1'))
-		AuthCode = Code[4:8].decode('latin-1')
-		Tries_Left = int(Code[2:4].decode('latin-1'),16)
-
-		if self.ErrorCode == '11000000' or self.ErrorCode == '12000000' or self.ErrorCode == '13000000' or \
-			self.ErrorCode == '14000000'  or self.ErrorCode == '15000000':
+		if self.ErrorCode[:4] == '0104':
 			login.failure("Account locked: {}".format(data))
 			return False
-		elif (AuthCode == '0002') or (AuthCode == '6402'):
-			if Tries_Left or not self.SessionID:
-				login.failure("Authentication failed: {} tries left {}".format(Tries_Left, "(BUG: SessionID = {})".format(self.SessionID) if self.SessionID else ''))
-				return False
-
-		login.success("Success")
+		if self.ErrorCode[:4] == '0105':
+			login.failure("Undefined code: {}".format(self.ErrorCode[:4]))
+			return False
+		elif self.ErrorCode[:4] == '0303':
+			login.failure("User already connected")
+			return False
+		elif self.ErrorCode[:4] == '0101':
+			login.failure("Username invalid")
+			return False
+		elif self.ErrorCode[:4] == '0100':
+			login.failure("Authentication failed: {} tries left {}".format(int(self.AuthCode[2:4],16), "(BUG: SessionID = {})".format(self.SessionID) if self.SessionID else ''))
+			return False
+		elif self.ErrorCode[:4] == '0008':
+			login.success("Success")
+		else:
+			login.failure("Unknown ErrorCode: {}".format(self.ErrorCode[:4]))
+			return False
 
 		keepAlive = 30 # Seems to be stable
 		_thread.start_new_thread(self.P2P_timeout,("P2P_timeout", keepAlive,))
@@ -683,7 +689,6 @@ class Dahua_Functions:
 					"params":{
 						"command":msg,
 						},
-					"object":self.OBJECT,
 					"session":self.SessionID
 					}
 				data = self.P2P(json.dumps(query_args))
