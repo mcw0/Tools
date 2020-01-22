@@ -387,7 +387,7 @@ class Dahua_Functions:
 				data = data[LEN_RECVED:]
 				if self.lock.locked():
 					self.lock.release()
-				if LEN_RECVED == LEN_EXPECT:
+				if LEN_RECVED == LEN_EXPECT and not len(data):
 					break
 
 		return ''.join(map(str, P2P_return_data))
@@ -689,6 +689,7 @@ class Dahua_Functions:
 					"params":{
 						"command":msg,
 						},
+					"object":self.OBJECT,
 					"session":self.SessionID
 					}
 				data = self.P2P(json.dumps(query_args))
