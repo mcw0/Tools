@@ -84,17 +84,15 @@ def DahuaProto(proto):
 	headers = [
 		'f6000000',	# JSON Send
 		'f6000068',	# JSON Recv
-		'a0000000', # DVRIP login Send Login Details
+		'a0050000', # DVRIP login Send Login Details
 		'a0010060', # DVRIP Send Request Realm
 
-		'b0000058', # DVRIP Recv
 		'b0000068', # DVRIP Recv
-		'b0010058', # DVRIP Recv 
 		'b0010068', # DVRIP Recv
 	]
 
 	for code in headers:
-		if code == proto:
+		if code[:6] == proto[:6]:
 			return True
 
 	return False
@@ -468,7 +466,7 @@ class Dahua_Functions:
 		#
 		# REALM & RANDOM Request
 		#
-		self.header = p32(0xa0010060,endian='big') + (p8(0x00) * 20) + p64(0x040209010000a1aa,endian='big')
+		self.header = p32(0xa0010000,endian='big') + (p8(0x00) * 20) + p64(0x050201010000a1aa,endian='big')
 
 		data = self.P2P(None)
 		if data == None or not len(data):
@@ -487,7 +485,7 @@ class Dahua_Functions:
 		#
 
 		HASH = USER_NAME + '&&' + Dahua_Gen2_md5_hash(RANDOM, REALM, USER_NAME, PASSWORD) + Dahua_DVRIP_md5_hash(RANDOM, USER_NAME, PASSWORD)
-		self.header = p32(0xa0000000,endian='big') + p32(len(HASH)) + (p8(0x00) * 20) + p32(0x0000a1aa,endian='big')
+		self.header = p32(0xa0050000,endian='big') + p32(len(HASH)) + (p8(0x00) * 16) + p64(0x050200080000a1aa,endian='big')
 
 		data = self.P2P(HASH)
 		if data == None:
@@ -495,23 +493,27 @@ class Dahua_Functions:
 #		if len(data):
 #			print(data)
 
-		if self.ErrorCode[:4] == '0104':
-			login.failure("Account locked: {}".format(data))
-			return False
-		if self.ErrorCode[:4] == '0105':
-			login.failure("Undefined code: {}".format(self.ErrorCode[:4]))
-			return False
-		elif self.ErrorCode[:4] == '0303':
-			login.failure("User already connected")
+
+		if self.ErrorCode[:4] == '0008':
+			login.success("Success")
+		elif self.ErrorCode[:4] == '0100':
+			login.failure("Authentication failed: {} tries left {}".format(int(self.AuthCode[2:4],16), "(BUG: SessionID = {})".format(self.SessionID) if self.SessionID else ''))
 			return False
 		elif self.ErrorCode[:4] == '0101':
 			login.failure("Username invalid")
 			return False
-		elif self.ErrorCode[:4] == '0100':
-			login.failure("Authentication failed: {} tries left {}".format(int(self.AuthCode[2:4],16), "(BUG: SessionID = {})".format(self.SessionID) if self.SessionID else ''))
+		elif self.ErrorCode[:4] == '0104':
+			login.failure("Account locked: {}".format(data))
 			return False
-		elif self.ErrorCode[:4] == '0008':
-			login.success("Success")
+		elif self.ErrorCode[:4] == '0105':
+			login.failure("Undefined code: {}".format(self.ErrorCode[:4]))
+			return False
+		elif self.ErrorCode[:4] == '0113':
+			login.failure("Not implemented: {}".format(self.ErrorCode[:4]))
+			return False
+		elif self.ErrorCode[:4] == '0303':
+			login.failure("User already connected")
+			return False
 		else:
 			login.failure("Unknown ErrorCode: {}".format(self.ErrorCode[:4]))
 			return False
@@ -610,7 +612,21 @@ class Dahua_Functions:
 			console.failure("Choose availible protocol: dhip / dvrip")
 			return False
 
+		query_args = {
+			"method":"magicBox.getDeviceType",
+			"params": None,
+			"session":self.SessionID,
+			"id":self.ID
+			}
+		data = self.P2P(json.dumps(query_args))
+		if not data == None:
+			data = json.loads(data)
+			log.info("Remote device: {}".format(data.get('params').get('type')))
 
+		if args.dump:
+			self.config_members("config all")
+			console.success("Dump config")
+			return False
 
 		if not self.CheckForConsole():
 			console.failure("Service Console do not exist on remote device")
@@ -632,26 +648,30 @@ class Dahua_Functions:
 		#
 		# If multiple Consoles is attached to one device, all attached Consoles will receive same output
 		#
-		self.OBJECT = data['result']
+		self.OBJECT = data.get('result')
+		self.ProcID = self.ID
 
 		query_args = {
 			"id":self.ID,						# (signed int)	# This ID will be persistent to the 'console'
 			"magic":"0x1234",
 			"method":"console.attach",
 			"params":{
-				"object":self.OBJECT, 			# (unsigned int)
-				"proc":self.SessionID,			# (unsigned int) Generates 'callback' in JSON from remote in 'console.runCmd' with same number
+				"proc":self.ProcID,			# (unsigned int) Generates 'callback' in JSON from remote in 'console.runCmd' with same number
 				},
 			"object":self.OBJECT, 				# (unsigned int)
 			"session":self.SessionID 			# (signed int)
 			}
 
 		data = self.P2P(json.dumps(query_args))
-		if data == None:
+		if not data == None:
+			data = json.loads(data)
+			if data.get('error'): # "Challange" blob in some NVR seems to have issues to attach
+				console.failure("Error: {}".format(json.dumps(data.get('error'))))
+		if data == None or not data.get('result'):
 			console.failure("console.attach")
 			return False
-		data = json.loads(data)
-		self.SID = data['params']['SID']
+
+		self.SID = data.get('params').get('SID')
 
 		console.success("Success")
 
@@ -704,8 +724,7 @@ class Dahua_Functions:
 						"magic":"0x1234",
 						"method":"console.detach",
 						"params":{
-							"object":self.OBJECT,
-							"proc":self.SessionID,
+							"proc":self.ProcID,
 							},
 						"object":self.OBJECT,
 						"session":self.SessionID
@@ -1307,6 +1326,7 @@ if __name__ == '__main__':
 		arg_parser.add_argument('--ssl', required=False, default=False, action='store_true', help='Use SSL for remote connection [Default: False]')
 		arg_parser.add_argument('--d','--debug', required=False, default=0, const=0x1, dest="debug", action='store_const', help='Debug (normal)')
 		arg_parser.add_argument('--dd','--ddebug', required=False, default=0, const=0x2, dest="ddebug", action='store_const', help='Debug (hexdump)')
+		arg_parser.add_argument('--dump', required=False, default=False, action='store_true', help='Dump remote device config [Default: False]')
 		arg_parser.add_argument('-f','--force', required=False, default=False, action='store_true', help='Force [Default: False]')
 		args = arg_parser.parse_args()
 	except Exception as e:
