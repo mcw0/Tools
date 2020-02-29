@@ -5,7 +5,11 @@ Dahua-JSON-Debug-Console-v2.py
 ---
 2020-02-29
 
-Added option 'setDebug', Should start produce output from Console in VTO/VTH
+Added option 'setDebug', Should start produce output from Debug Console in VTO/VTH
+
+Added '--discover', Multicast search of devices or direct probe (--rhost 192.168.57.20) of device via UDP/37810
+
+Added '--dump {config,service}' for dumping config or services on remote host w/o entering Debug Console
 
 2020-01-20
 
