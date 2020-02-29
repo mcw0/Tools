@@ -3,6 +3,10 @@ Some tools (feedback / bug reports are appreciated)
 
 Dahua-JSON-Debug-Console-v2.py
 ---
+2020-02-29
+
+Added option 'setDebug', Should start produce output from Console in VTO/VTH
+
 2020-01-20
 
 - Ported to Python 3
