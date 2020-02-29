@@ -12,6 +12,9 @@ January 2020:
 4. encode/decode in latin-1, we might need untouched chars between 0x00 - 0xff
 5. Better 'debug' with hexdump as option
 
+February 2020:
+1. Added option 'setDebug', Should start produce output from Console in VTO/VTH
+
 [Description]
 1. Supporting Dahua 'DHIP' P2P binary protocol, that works on normal HTTP/HTTPS ports and TCP/5000
 2. Supporting Dahua 'DVRIP' P2P binary protocol, that works normally on TCP/37777
@@ -584,6 +587,10 @@ class Dahua_Functions:
 		'REBOOT':{
 			'cmd':'self.reboot(msg)',
 			'help':'Try force reboot of remote',
+			},
+		'setDebug':{
+			'cmd':'self.setDebug(msg)',
+			'help':'Should start produce output from Console in VTO/VTH',
 			},
 		'test-config':{
 			'cmd':'self.newConfig(msg)',
@@ -1249,6 +1256,45 @@ class Dahua_Functions:
 			log.failure("Usage: show / set / get / del")
 			return 
 
+	def setDebug(self,msg):
+
+		query_args = {
+			"method":"configManager.setConfig",
+				"params": {
+				"name":"Debug",
+					"table": {
+						"PrintLogLevel":0,
+						},
+				},
+			"session":self.SessionID,
+			"id":self.ID
+			}
+
+		data = self.P2P(json.dumps(query_args))
+		if data == None:
+			return
+		data = json.loads(data)
+		log.success("PrintLogLevel 0: {}".format(data.get('result')))
+
+		query_args = {
+			"method":"configManager.setConfig",
+				"params": {
+				"name":"Debug",
+					"table": {
+						"PrintLogLevel":6,
+						},
+				},
+			"session":self.SessionID,
+			"id":self.ID
+			}
+
+		data = self.P2P(json.dumps(query_args))
+		if data == None:
+			return
+		data = json.loads(data)
+		log.success("PrintLogLevel 6: {}".format(data.get('result')))
+		return
+
 #
 # Validate HOST, IP and PORT
 #
@@ -1303,7 +1349,7 @@ if __name__ == '__main__':
 #
 # Help, info and pre-defined values
 #	
-	INFO =  '[Dahua JSON Debug Console 2020 bashis <mcw noemail eu>]\n'
+	INFO =  '[Dahua JSON Debug Console 2019,2020 bashis <mcw noemail eu>]\n'
 	RHOST = '192.168.57.20'			# Default Remote HOST
 	RPORT = 5000					# Default Remote PORT (Normally DHIP used port)
 #	RPORT = 80						# Default Remote PORT (PoC that normal HTTP port working too with DHIP)
@@ -1320,12 +1366,12 @@ if __name__ == '__main__':
 				description=('[*] '+ INFO +' [*]'))
 		arg_parser.add_argument('--rhost', required=False, default=RHOST, help='Remote Target Address (IP/FQDN) [Default: '+ RHOST +']')
 		arg_parser.add_argument('--rport', required=False, type=int, help='Remote Target HTTP/HTTPS Port [Default: '+ str(RPORT) +']')
-		arg_parser.add_argument('--proto', required=False, type=str, default=PROTO, help='dhip, dvrip [Default: '+ PROTO +']')
+		arg_parser.add_argument('--proto', required=False, type=str, choices=['dhip', 'dvrip'],default=PROTO, help='Protocol [Default: '+ PROTO +']')
 		if CREDS:
 			arg_parser.add_argument('--auth', required=False, type=str, default=CREDS, help='Basic Authentication [Default: '+ CREDS + ']')
 		arg_parser.add_argument('--ssl', required=False, default=False, action='store_true', help='Use SSL for remote connection [Default: False]')
-		arg_parser.add_argument('--d','--debug', required=False, default=0, const=0x1, dest="debug", action='store_const', help='Debug (normal)')
-		arg_parser.add_argument('--dd','--ddebug', required=False, default=0, const=0x2, dest="ddebug", action='store_const', help='Debug (hexdump)')
+		arg_parser.add_argument('-d','--debug', required=False, default=0, const=0x1, dest="debug", action='store_const', help='Debug (normal)')
+		arg_parser.add_argument('-dd','--ddebug', required=False, default=0, const=0x2, dest="ddebug", action='store_const', help='Debug (hexdump)')
 		arg_parser.add_argument('--dump', required=False, default=False, action='store_true', help='Dump remote device config [Default: False]')
 		arg_parser.add_argument('-f','--force', required=False, default=False, action='store_true', help='Force [Default: False]')
 		args = arg_parser.parse_args()
