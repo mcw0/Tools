@@ -13,7 +13,9 @@ January 2020:
 5. Better 'debug' with hexdump as option
 
 February 2020:
-1. Added option 'setDebug', Should start produce output from Console in VTO/VTH
+1. Added option 'setDebug', Should start produce output from Debug Console in VTO/VTH
+2. Added '--discover', Multicast search of devices or direct probe (--rhost 192.168.57.20) of device via UDP/37810
+3. Added '--dump {config,service}' for dumping config or services on remote host w/o entering Debug Console
 
 [Description]
 1. Supporting Dahua 'DHIP' P2P binary protocol, that works on normal HTTP/HTTPS ports and TCP/5000
@@ -134,6 +136,52 @@ def DEBUG(direction, packet):
 					print(hexdump(packet))
 		print("[ END  {}] <{:-^60}>".format(direction, inspect.currentframe().f_back.f_lineno))
 	return
+
+def DHDiscover(rhost):
+
+	MCAST_GRP = rhost
+	MCAST_PORT = 37810
+
+	query_args = {
+		"id":10000,
+		"method":"DHDiscover.search",
+		"params":{
+			"mac":"",
+			"uni":1
+			},
+		"session":0
+		}
+
+	header =  p64(0x2000000044484950,endian='big') + p64(0x0) + p32(len(json.dumps(query_args))) + p32(0x0) + p32(len(json.dumps(query_args))) + p32(0x0)
+	packet = header + json.dumps(query_args).encode('latin-1')
+
+	try:
+		socket.setdefaulttimeout(3)
+		sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+		sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+		DEBUG("SEND",packet.decode('latin-1'))
+		sock.sendto(packet, (MCAST_GRP, MCAST_PORT))
+
+		while True:
+			data, addr = sock.recvfrom(4096)
+			DEBUG("RECV",data.decode('latin-1'))
+			data = data[32:].decode('latin-1')
+			data = json.loads(data.strip('\x00'))
+			log.success("DHDiscover response from: {}:{}".format(addr[0],addr[1]))
+
+			log.info("S/N: {}, Model: {}, Ver: {}\nIPv4: {}, GW: {}, DHCP: {}, MAC: {}\n\n".format(
+				data.get('params').get('deviceInfo').get('SerialNo'),
+				data.get('params').get('deviceInfo').get('DeviceType'),
+				data.get('params').get('deviceInfo').get('Version'),
+				data.get('params').get('deviceInfo').get('IPv4Address').get('IPAddress'),
+				data.get('params').get('deviceInfo').get('IPv4Address').get('DefaultGateway'),
+				data.get('params').get('deviceInfo').get('IPv4Address').get('DhcpEnable'),data.get('mac')
+				))
+
+	except (Exception, KeyboardInterrupt, SystemExit) as e:
+		pass
+
+	return True
 
 #
 # From: https://github.com/haicen/DahuaHashCreator/blob/master/DahuaHash.py
@@ -630,9 +678,13 @@ class Dahua_Functions:
 			data = json.loads(data)
 			log.info("Remote device: {}".format(data.get('params').get('type')))
 
-		if args.dump:
+		if args.dump =='config':
 			self.config_members("config all")
 			console.success("Dump config")
+			return False
+		elif args.dump == 'service':
+			self.listService('service all')
+			console.success("Dump services")
 			return False
 
 		if not self.CheckForConsole():
@@ -1372,7 +1424,8 @@ if __name__ == '__main__':
 		arg_parser.add_argument('--ssl', required=False, default=False, action='store_true', help='Use SSL for remote connection [Default: False]')
 		arg_parser.add_argument('-d','--debug', required=False, default=0, const=0x1, dest="debug", action='store_const', help='Debug (normal)')
 		arg_parser.add_argument('-dd','--ddebug', required=False, default=0, const=0x2, dest="ddebug", action='store_const', help='Debug (hexdump)')
-		arg_parser.add_argument('--dump', required=False, default=False, action='store_true', help='Dump remote device config [Default: False]')
+		arg_parser.add_argument('--dump', required=False, default=False, type=str, choices=['config', 'service'], help='Dump remote config')
+		arg_parser.add_argument('--discover', required=False, default=False, action='store_true', help='discover [Default: False]')
 		arg_parser.add_argument('-f','--force', required=False, default=False, action='store_true', help='Force [Default: False]')
 		args = arg_parser.parse_args()
 	except Exception as e:
@@ -1419,9 +1472,13 @@ if __name__ == '__main__':
 	if status:
 		if args.ssl:
 			log.info("SSL Mode Selected")
-
-		Dahua = Dahua_Functions(args.rhost, args.rport, args.ssl, args.auth, args.proto, args.force)
-		status = Dahua.DebugConsole()
+		if args.discover:
+			if args.rhost == RHOST:
+				args.rhost = '239.255.255.251' # MCAST
+			status = DHDiscover(args.rhost)
+		else:
+			Dahua = Dahua_Functions(args.rhost, args.rport, args.ssl, args.auth, args.proto, args.force)
+			status = Dahua.DebugConsole()
 
 	log.info("All done")
 	sys.exit(status)
