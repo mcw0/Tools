@@ -17,6 +17,10 @@ February 2020:
 2. Added '--discover', Multicast search of devices or direct probe (--rhost 192.168.57.20) of device via UDP/37810
 3. Added '--dump {config,service}' for dumping config or services on remote host w/o entering Debug Console
 
+March 2020:
+1. DVRIP SessionID bug: "method": "snapManager.listMethod".
+2. Renamed 'ssh' to 'sshd', 'ssh' already used in some FW.
+
 [Description]
 1. Supporting Dahua 'DHIP' P2P binary protocol, that works on normal HTTP/HTTPS ports and TCP/5000
 2. Supporting Dahua 'DVRIP' P2P binary protocol, that works normally on TCP/37777
@@ -612,7 +616,7 @@ class Dahua_Functions:
 			'cmd':'self.telnetd_SSHD(msg)',
 			'help':'Start / Stop (-h for params)',
 			},
-		'ssh':{
+		'sshd':{
 			'cmd':'self.telnetd_SSHD(msg)',
 			'help':'Start / Stop (-h for params)',
 			},
@@ -946,7 +950,7 @@ class Dahua_Functions:
 
 		if cmd[0] == 'telnet':
 			SERVICE = 'Telnet'
-		elif cmd[0] == 'ssh':
+		elif cmd[0] == 'sshd':
 			SERVICE = 'SSHD'
 
 		if len(cmd) == 1 or cmd[1] == '-h':
@@ -1047,7 +1051,7 @@ class Dahua_Functions:
 						if data2.get('result'):
 							data2.pop('result')
 							data2.pop('id')
-							data2.pop('session')
+							data2.pop('session') if data2.get('session') else log.failure("SessionID BUG") # SessionID bug: "method": "snapManager.listMethod"
 							print(json.dumps(data2,indent=4))
 
 				elif len(cmd) == 2 and cmd[1] == data['params']['service'][count]:
