@@ -1016,7 +1016,8 @@ class Dahua_Functions:
 		query_args = {
 			"method":"system.listService",
 			"session":self.SessionID,
-			"id":self.ID
+			"id":self.ID,
+			"params": None
 			}
 
 		data = self.P2P(json.dumps(query_args))
@@ -1087,7 +1088,8 @@ class Dahua_Functions:
 			query_args = {
 				"method":"magicBox.getSoftwareVersion",
 				"session":self.SessionID,
-				"id":self.ID
+				"id":self.ID,
+				"params": None
 				}
 			data = self.P2P(json.dumps(query_args))
 			if not data == None:
@@ -1097,7 +1099,8 @@ class Dahua_Functions:
 			query_args = {
 				"method":"magicBox.getProductDefinition",
 				"session":self.SessionID,
-				"id":self.ID
+				"id":self.ID,
+				"params": None
 				}
 
 			data = self.P2P(json.dumps(query_args))
@@ -1118,7 +1121,8 @@ class Dahua_Functions:
 			query_args = {
 				"method":"magicBox.getSystemInfo",
 				"session":self.SessionID,
-				"id":self.ID
+				"id":self.ID,
+				"params": None
 				}
 
 			data = self.P2P(json.dumps(query_args))
@@ -1137,7 +1141,8 @@ class Dahua_Functions:
 			query_args = {
 				"method":"magicBox.getMemoryInfo",
 				"session":self.SessionID,
-				"id":self.ID
+				"id":self.ID,
+				"params": None
 				}
 
 			data = self.P2P(json.dumps(query_args))
@@ -1154,7 +1159,8 @@ class Dahua_Functions:
 			query_args = {
 				"method":"storage.getDeviceAllInfo",
 				"session":self.SessionID,
-				"id":self.ID
+				"id":self.ID,
+				"params": None
 				}
 
 			data = self.P2P(json.dumps(query_args))
@@ -1177,7 +1183,8 @@ class Dahua_Functions:
 			query_args = {
 				"method":"Security.getEncryptInfo",
 				"session":self.SessionID,
-				"id":self.ID
+				"id":self.ID,
+				"params": None
 				}
 
 			data = self.P2P(json.dumps(query_args))
@@ -1196,7 +1203,8 @@ class Dahua_Functions:
 			query_args = {
 				"method":"CertManager.exportRootCert",
 				"session":self.SessionID,
-				"id":self.ID
+				"id":self.ID,
+				"params": None
 				}
 
 			data = self.P2P(json.dumps(query_args))
@@ -1222,7 +1230,8 @@ class Dahua_Functions:
 			query_args = {
 				"method":"CertManager.getSvrCertInfo",
 				"session":self.SessionID,
-				"id":self.ID
+				"id":self.ID,
+				"params": None
 				}
 
 			data = self.P2P(json.dumps(query_args))
