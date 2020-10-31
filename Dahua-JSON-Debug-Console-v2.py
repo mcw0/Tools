@@ -697,6 +697,10 @@ class Dahua_Functions:
 			'cmd':'self.config_members(msg)',
 			'help':'remote config (-h for params)',
 			},
+		'door':{
+			'cmd':'self.open_door(msg)',
+			'help':'open door (-h for params)',
+			},
 		'service':{
 			'cmd':'self.listService(msg)',
 			'help':'List remote services and "methods" (-h for params)',
@@ -1020,6 +1024,57 @@ class Dahua_Functions:
 
 		return
 
+	def open_door(self, msg):
+		msg = msg
+		cmd = msg.split()
+		
+		if len(cmd) == 1 or cmd[1] == '-h':
+			log.info("Usage:\n{}".format(
+				"<n>: open door <n>",
+				))
+			return True
+		try:
+		    door = int(cmd[1])
+		except ValueError as ex:
+		    log.error("Bad door number %s", cmd[1])
+		data = self.P2P(json.dumps({
+		        "method": "accessControl.factory.instance",
+		        "params": {
+		                "channel": door,
+		                },
+				"session":self.SessionID,
+				"id":self.ID
+		        }))
+		if data == None:
+			return
+		data = json.loads(data)
+		instance = data.pop("result")
+		data = self.P2P(json.dumps({
+		        "method": "accessControl.openDoor",
+		        "object": instance,
+		        "params": {
+		                "DoorIndex": door,
+		                "ShortNumber": "9901#0",
+		                "Type": "Remote",
+		                },
+				"session":self.SessionID,
+				"id":self.ID
+		        }))
+		if data == None:
+			return
+		data = json.loads(data)
+		result = data.pop("result")
+		data = self.P2P(json.dumps({
+		        "method": "accessControl.destroy",
+		        "object": instance,
+				"session":self.SessionID,
+				"id":self.ID
+		        }))
+		if data == None:
+			return
+		data = json.loads(data)
+		result = data.pop("result")
+		return
 
 	def telnetd_SSHD(self,msg):
 		cmd = msg.split()
