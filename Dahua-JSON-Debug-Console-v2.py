@@ -12,6 +12,7 @@ January 2021 (Major rewrite):
 3.	'console' Multiple simultaneous connections to devices, easy switching between active Console
 4.	'password manager', create/change Dahua hash and connection details for devices, saved in 'dhConsole.json'
 	- No fancy own encryption/decryption, we simply use the Dahua 'one way' format to save and pass on hashes.
+	- ./Dahua-JSON-Debug-Console-v2.py --rhost <RHOST> --proto <PROTO> --rport <RPORT> --auth <USERNAME>:<PASSWORD> --save
 5.	Events/Alarm, scanning config and subscribing on all found events/alarm
 	- Listen for incoming event traffic on UDP from instances, accepting external TCP connections for relay of event traffic (only on 127.0.0.1)
 	- The listening UDP socket for incoming are literally directly connected to outgoing TCP socket, for speedy reasons.
@@ -730,10 +731,6 @@ class DebugConsole:
 		if args.dump or args.test:
 			return self.Dump()
 
-		if self.events:
-			_thread.start_new_thread(self.EventInOutServer,("EventInOutServer",))
-			_thread.start_new_thread(self.TerminateDaemons,("TerminateDaemons",))
-
 		self.MainConsole()
 
 	#
@@ -1265,6 +1262,12 @@ class DebugConsole:
 
 		Host = pwdManager()
 		data = Host.GetHost()
+		if not data:
+			return False
+
+		if self.events:
+			_thread.start_new_thread(self.EventInOutServer,("EventInOutServer",))
+			_thread.start_new_thread(self.TerminateDaemons,("TerminateDaemons",))
 
 		#
 		# Connect multiple pre-defined devices
@@ -6719,7 +6722,10 @@ if __name__ == '__main__':
 			DH = Dahua_Functions()
 			DH.DHDiscover("ldiscover {} {}".format(args.discover, args.rhost))
 		else:
+#			try:
 			status = DebugConsole()
+#			except Exception as e:
+#				pass
 
 	log.info("All done")
 
