@@ -11,7 +11,7 @@ Major rewrite:
 3.	'console' Multiple simultaneous connections to devices, easy switching between active Console
 4.	'password manager', create/change Dahua hash and connection details for devices, saved in 'dhConsole.json'
 	- No fancy own encryption/decryption, we simply use the Dahua 'one way' format to save and pass on hashes.
-	- ./Dahua-JSON-Debug-Console-v2.py --rhost <RHOST> --proto <PROTO> --rport <RPORT> --auth <USERNAME>:<PASSWORD> --save
+	- ./Dahua-JSON-Debug-Console-v2.py --rhost \<RHOST\> --proto \<PROTO\> --rport \<RPORT\> --auth \<USERNAME\>:\<PASSWORD\> --save
 5.	Events/Alarm, scanning config and subscribing on all found events/alarm
 	- Listen for incoming event traffic on UDP from instances, accepting external TCP connections for relay of event traffic (only on 127.0.0.1)
 	- The listening UDP socket for incoming are literally directly connected to outgoing TCP socket, for speedy reasons.
