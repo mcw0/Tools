@@ -289,7 +289,11 @@ class pwdManager:
 
 		if not self.auth:
 			data = self.GetHost(self.rhost,hashes=True)
-			if not data or proto == '3des':
+			if args.proto == '3des':
+				self.login.failure(color('3DES: You need to use --auth <username>:<password>',RED))
+				return False
+
+			if not data:
 				self.login.failure(color('You need to use --auth <username>:<password> [--save]',RED))
 				return False
 
@@ -1260,10 +1264,11 @@ class DebugConsole:
 		self.dhConsole = {}
 		self.dhConsoleNo = 0
 
-		Host = pwdManager()
-		data = Host.GetHost()
-		if not data:
-			return False
+		if not args.auth:
+			Host = pwdManager()
+			data = Host.GetHost()
+			if not data:
+				return False
 
 		if self.events:
 			_thread.start_new_thread(self.EventInOutServer,("EventInOutServer",))
@@ -2439,7 +2444,8 @@ class Dahua_Functions:
 			data = LogIn.DVRIP({
 				"proto":self.proto
 				})
-
+			if not data:
+				return False
 			# all characters above 8 will be stripped
 			self.header =  p32(0xa0000000,endian='big') + p32(0x0) + data.get('username') + data.get('password') + p64(0x050200010000a1aa,endian='big')
 
