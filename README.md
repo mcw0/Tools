@@ -3,6 +3,10 @@ Some tools (feedback / bug reports are appreciated)
 
 Dahua-JSON-Debug-Console-v2.py
 ---
+2021-02-08
+
+Fixed some bugs
+
 2021-01-23
 
 Major rewrite:
