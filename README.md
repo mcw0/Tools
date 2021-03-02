@@ -3,6 +3,11 @@ Some tools (feedback / bug reports are appreciated)
 
 Dahua-JSON-Debug-Console-v2.py
 ---
+
+2021-03-02
+Misc bug fixes and tuning for performance of self.P2P() 
+DHIP artifact: Removed ["magic":"0x1234"]
+
 2021-02-08
 
 Fixed some bugs

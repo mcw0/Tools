@@ -6,6 +6,10 @@ Subject: Dahua JSON Debug Console
 
 [Updates]
 
+March 2021:
+Misc bug fixes and tuning for performance of self.P2P() 
+DHIP artifact: Removed ["magic":"0x1234"]
+
 January 2021 (Major rewrite):
 1.	Implemented 'multicall' - big timesaver (!) (not 100% consistent usage for now, but working good as it is)
 2.	'SendCall()' wrapper around 'self.P2P()'. self.P2P() should not be used directly (unless you want raw data).
@@ -170,22 +174,20 @@ def DahuaProto(proto):
 	proto = binascii.b2a_hex(proto.encode('latin-1')).decode('latin-1')
 
 	headers = [
-		'f6000000',	# JSON Send
-		'f6000068',	# JSON Recv
-		'a0050000', # DVRIP login Send Login Details
-		'a0010060', # DVRIP Send Request Realm
-		'a0000000', # 3DES Login
+		'f600',	# JSON
+		'a005', # DVRIP login Send Login Details
+		'a001', # DVRIP Send Request Realm
+		'a000', # 3DES Login
 
-		'b0000068', # DVRIP Recv
-		'b0010068', # DVRIP Recv
-		'a3010001', # DVRIP Discover Request
-		'b3002301', # DVRIP Discover Response
+		'b000', # DVRIP Recv
+		'b001', # DVRIP Recv
+
+		'a301', # DVRIP Discover Request
+		'b300', # DVRIP Discover Response
 	]
 
-	for code in headers:
-		if code[:4] == proto[:4]:
-			return True
-
+	if proto[:4] in headers:
+		return True
 
 	return False
 
@@ -1311,7 +1313,7 @@ class DebugConsole:
 			try:
 				self.prompt()
 				msg = sys.stdin.readline().strip().decode('latin-1')
-				if not self.dh:
+				if not self.dh or not self.dh.remote.connected():
 					log.failure('No available instances')
 					return False
 				cmd = msg.split()
@@ -1523,7 +1525,7 @@ class DebugConsole:
 				"<ipAddr>":"(connect pre-defined device <ipAddr>)"
 			},
 			"kill":{
-				"<dh#>":"(kill instance dh<#>)"
+				"dh<#>":"(kill instance dh<#>)"
 			},
 			"dh<#>":"(switch active console. e.g. 'console dh0')"
 		}
@@ -1799,6 +1801,7 @@ class Dahua_Functions:
 		self.RemoteServicesCache = {}	 	# Cache of remote services, used to check if certain service exist or not
 		self.RemoteMethodsCache = {}		# Cache of used remote methods
 		self.RemoteConfigCache = {}			# Cache of remote config
+		self.RestoreEventHandler = {}		# Cache of temporary enabled events
 
 		self.event = threading.Event()
 		self.socket_event = threading.Event()
@@ -2086,7 +2089,6 @@ class Dahua_Functions:
 		query_args = {
 			"SID":self.InstanceService('console',pull='sid'),
 			"id":self.ID,
-			"magic":"0x1234",
 			"method":"console.runCmd",
 			"params":{
 				"command":msg,
@@ -2097,9 +2099,16 @@ class Dahua_Functions:
 		if self.ConsoleAttach or args.force:
 			data = self.P2P(json.dumps(query_args))
 			if not data:
-				return False
+				# Try catch the 'result'
+				data = self.P2P(json.dumps(query_args),recv=True)
+				if not data:
+					return False
 			if not data == None:
-				data = json.loads(data)
+				try:
+					data = json.loads(data)
+				except json.decoder.JSONDecodeError as e:
+					log.failure('JSONDecodeError: {}'.format(e))
+					print(data)
 
 				if not data.get('result'):
 					log.failure("Invalid command: 'help' for help")
@@ -2135,7 +2144,6 @@ class Dahua_Functions:
 						pass
 				time.sleep(sleep)
 				continue
-
 	#
 	# Main keepAlive thread
 	#
@@ -2151,7 +2159,6 @@ class Dahua_Functions:
 
 			query_args = {
 				"method":"global.keepAlive",
-				"magic" : "0x1234",
 				"params":{
 					"timeout":delay,
 					"active":True
@@ -2165,7 +2172,6 @@ class Dahua_Functions:
 					log.warning('self termination ({})'.format(self.rhost))
 					self.terminate = True
 					self.remote.close()
-#					self.logout()
 					return False
 			except Exception as e:
 				log.failure('keepAlive'.format(e))
@@ -2203,7 +2209,6 @@ class Dahua_Functions:
 			if data:
 				self.clientNotify(json.dumps(data))
 			pass
-
 	#
 	# Handle all external communication to and from device
 	#
@@ -2245,7 +2250,7 @@ class Dahua_Functions:
 			try:
 				if json.loads(packet).get('transfer'):
 					packet = json.loads(packet)
-					dataOut = packet.get('transfer')
+					dataOut = b64d(packet.get('transfer'))
 					packet.pop('transfer')
 					packet = json.dumps(packet) + '\n' + dataOut
 			except (JSONDecodeError,AttributeError) as e:
@@ -2268,37 +2273,69 @@ class Dahua_Functions:
 		# We must expect there is no output from remote device
 		# Some debug cmd do not return any output, some will return after timeout/failure, most will return directly
 		#
+		start = time.time()
+		LEN_EXPECT = 0
 		WAIT = 20
 		TIMEOUT = 0.5
 
+		# Checking in binary header for the amount of data to be received
 		while True:
 			try:
-				data += self.remote.recv(numb=8192,timeout=TIMEOUT).decode('latin-1')
-				#
-				# Workaround for some commands who will take longer time before returning data to us
-				# (Mostly useful for NVR)
-				#
-				if not len(data):
-					if not WAIT:
+				data = self.remote.recv(numb=32,timeout=TIMEOUT).decode('latin-1')
+#				print('[1] len',len(data))
+#				print(data)
+				if len(data):
+					if self.proto == 'dhip':
+						if data[0:8] == p64(0x2000000044484950,endian='big').decode('latin-1'):
+							LEN_EXPECT = u32(data[24:28]) + 32
+						else:
+							print('Not DHIP')
+							print(data)
+					elif self.proto == 'dvrip' or self.proto == '3des':
+						if DahuaProto(data[0:4]):
+							tmp = binascii.b2a_hex(data.encode('latin-1')).decode('latin-1')
+							proto = [
+								'b000',
+								'b001',
+								]
+							# Field for amount of data in DVRIP/3DES differs
+							if tmp[0:4] in proto:
+								LEN_EXPECT = u32(data[4:8]) + 32
+							else:
+								LEN_EXPECT = u32(data[16:20]) + 32
+						else:
+							print('Not DVRIP')
+							print(data)
+
+					if LEN_EXPECT:
+#						print('LEN_EXPECT',LEN_EXPECT)
+						while True:
+							data += self.remote.recv(numb=1024,timeout=TIMEOUT).decode('latin-1')
+#							print('[3] len',len(data))
+
+							if len(data) >= LEN_EXPECT:
+								if self.remote.can_recv():
+#									print('more data')
+									continue
+								break
+							# Prevent infinite loop
+							if time.time() - start > WAIT:
+								break
 						break
-					WAIT -= 1
-					time.sleep(2)
-					continue
-				# Check if there is recv data available within 'TIMEOUT'
-				if not self.remote.can_recv(TIMEOUT):
-					break
+
+				# Prevent infinite loop
+				if time.time() - start > WAIT:
+					log.failure('Timeout in P2P')
+					if self.lock.locked():
+						self.lock.release()
+					return False
 
 			except KeyboardInterrupt as e:
 				if self.lock.locked():
 					self.lock.release()
-				raise KeyboardInterrupt
 				return False
-
-			except Exception as e:
-				if self.lock.locked():
-					self.lock.release()
-				self.socket_event.set()
-				return None
+			except EOFError:
+				break
 
 		if not len(data):
 			if self.lock.locked():
@@ -2334,6 +2371,8 @@ class Dahua_Functions:
 					log.failure("P2P: Unknow packet")
 					print("PROTO: \033[92m[\033[91m{}\033[92m]\033[0m".format(binascii.b2a_hex(data[0:4].encode('latin-1')).decode('latin-1')))
 					print(hexdump(data))
+					if self.lock.locked():
+						self.lock.release()
 					return None
 				P2P_data = data[0:LEN_RECVED]
 				if LEN_RECVED:
@@ -2370,16 +2409,18 @@ class Dahua_Functions:
 
 		query_args = {
 			"id" : self.ID,
-			"magic":"0x1234",
 			"method":"global.login",
 			"params":{
 				},
 			"session":self.SessionID
 			}
-		query_args.get('params').update(LogIn.DHIP(query_args))
+		params = LogIn.DHIP(query_args)
+		if not params:
+			return False
+		query_args.get('params').update(params)
 
 		data = self.SendCall(query_args,errorcodes=True)
-		if data == False:
+		if data == False or data == None:
 			login.failure("global.login [random]")
 			return False
 
@@ -2394,7 +2435,6 @@ class Dahua_Functions:
 
 		query_args = {
 			"id":self.ID,
-			"magic":"0x1234",
 			"method":"global.login",
 			"params":{
 				},
@@ -2446,6 +2486,7 @@ class Dahua_Functions:
 				})
 			if not data:
 				return False
+
 			# all characters above 8 will be stripped
 			self.header =  p32(0xa0000000,endian='big') + p32(0x0) + data.get('username') + data.get('password') + p64(0x050200010000a1aa,endian='big')
 
@@ -2691,7 +2732,7 @@ class Dahua_Functions:
 					pass
 				tmp = data.split('\n')
 				data = json.loads(tmp[0])
-				data.update({"transfer":tmp[1]})
+				data.update({"transfer":b64e(tmp[1])})
 				pass
 
 			if not data.get('result') and data.get('error'):
@@ -2755,7 +2796,6 @@ class Dahua_Functions:
 			#
 			self.multicall_query = {
 				"id":self.ID,
-				"magic":"0x1234",
 				"method":"system.multicall",
 				"params": self.multicall_query_args,
 				"session":self.SessionID,
@@ -2769,7 +2809,7 @@ class Dahua_Functions:
 				raise KeyboardInterrupt
 				return False
 
-			if data == None or not len(data):
+			if data == None or not data or not len(data):
 				if debug:
 					log.failure(color("No data back with query: (system.multicall)",LRED))
 				# Lets listen again, keepAlive might got it and sent back to recv()
@@ -2828,7 +2868,6 @@ class Dahua_Functions:
 
 		query_args = {
 			"method":"system.listService",
-			"magic":"0x1234",
 			"session":self.SessionID,
 			"params":None,
 			"id":self.ID
@@ -2874,6 +2913,9 @@ class Dahua_Functions:
 
 		if not self.RemoteServicesCache:
 			self.CheckForService('dump')
+			if not self.RemoteServicesCache:
+				log.failure('EZIP perhaps?')
+				return False
 
 		if self.RemoteServicesCache.get('result'):
 			if not args.dump:
@@ -2889,7 +2931,6 @@ class Dahua_Functions:
 
 					query_tmp = {
 						"method":"",
-						"magic":"0x1234",
 						"session":self.SessionID,
 						"params":None,
 						"id":self.ID
@@ -2925,6 +2966,8 @@ class Dahua_Functions:
 						break
 
 			data = self.SendCall(None,multicall=True,multicallsend=True)
+			if not data:
+				return False
 
 			if data == None:
 				cache = tmp
@@ -2999,7 +3042,6 @@ class Dahua_Functions:
 
 				query_args = {
 					"method":"system.methodHelp",
-					"magic":"0x1234",
 					"session":self.SessionID,
 					"params":{
 						"methodName":method,
@@ -3009,7 +3051,6 @@ class Dahua_Functions:
 				data = self.SendCall(query_args)
 				query_args = {
 					"method":"system.methodSignature",
-					"magic":"0x1234",
 					"session":self.SessionID,
 					"params":{
 						"methodName":method,
@@ -3160,7 +3201,6 @@ class Dahua_Functions:
 			if not AttachOnly:
 				query_args = {
 					"id":self.ID,
-					"magic":"0x1234",
 					"method":"{}.factory.instance".format(method),
 					"params": params,
 					"session":self.SessionID
@@ -3209,7 +3249,6 @@ class Dahua_Functions:
 				for paramsTmp in self.attachParamsTMP:
 					query_args = {
 						"id":self.ID,
-						"magic":"0x1234",
 		#				"method":"{}.attachAsyncResult".format(method),	# .params.cmd needed
 						"method":"{}.attach".format(method),
 						"params": {
@@ -3228,7 +3267,6 @@ class Dahua_Functions:
 
 				query_args = {
 					"id":self.ID,
-					"magic":"0x1234",
 	#				"method":"{}.attachAsyncResult".format(method),	# .params.cmd needed
 					"method":"{}.attach".format(method),
 					"params": {
@@ -3254,7 +3292,6 @@ class Dahua_Functions:
 			else:
 				query_args = {
 					"id":self.ID,
-					"magic":"0x1234",
 	#				"method":"{}.attachAsyncResult".format(method),	# .params.cmd needed
 					"method":"{}.attach".format(method),
 					"params": {
@@ -3292,7 +3329,6 @@ class Dahua_Functions:
 			if detach:
 				query_args = {
 					"id":self.ID,
-					"magic":"0x1234",
 #					"method":"{}.detachAsyncResult".format(method),	# .params.cmd needed
 					"method":"{}.detach".format(method),
 					"params":{
@@ -3306,7 +3342,7 @@ class Dahua_Functions:
 					query_args.get('params').update(detachParams)
 
 				data = self.SendCall(query_args)
-				if data == False:
+				if data == False or not data:
 					return False, "{}.detach".format(method), data
 
 				if not data.get('result'):
@@ -3314,7 +3350,6 @@ class Dahua_Functions:
 
 			query_args = {
 				"id":self.ID,
-				"magic":"0x1234",
 				"method":"{}.destroy".format(method),
 				"params":None, 
 				"object":OBJECT,
@@ -3417,7 +3452,6 @@ class Dahua_Functions:
 		if cmd[1] == 'members':
 			query_args = {
 				"method":"configManager.getMemberNames",
-				"magic":"0x1234",
 				"params": {
 					"name":"",
 					},
@@ -3429,16 +3463,16 @@ class Dahua_Functions:
 				cmd[1] = 'All'
 			query_args = {
 				"method":"configManager.getConfig",
-				"magic":"0x1234",
 				"params": {
 					"name":cmd[1],
 					},
 				"session":self.SessionID,
 				"id":self.ID
 				}
-		data = self.SendCall(query_args)
-		if data == False:
-			return
+		data = self.SendCall(query_args,errorcodes=True)
+		if not data or not data.get('result'):
+			log.failure('Error: {}'.format(data.get('error') if data else False))
+			return False
 
 		data.pop('id')
 		data.pop('session')
@@ -3490,7 +3524,6 @@ class Dahua_Functions:
 		if cmd[2] == 'open':
 			query_args = {
 				"method": "accessControl.openDoor",
-				"magic":"0x1234",
 				"params": {
 						"DoorIndex": door,
 						"ShortNumber": "9901#0",
@@ -3516,7 +3549,6 @@ class Dahua_Functions:
 		elif cmd[2] == 'close':
 			query_args = {
 				"method": "accessControl.closeDoor", # {"id":21,"result":true,"session":2147483452}
-				"magic":"0x1234",
 				"params": {
 #						"Type": "Remote",
 #						"UserID":"",
@@ -3534,7 +3566,6 @@ class Dahua_Functions:
 		elif cmd[2] == 'status':	# Seems always to return "Status Close"
 			query_args = {
 				"method": "accessControl.getDoorStatus", # {"id":8,"params":{"Info":{"status":"Close"}},"result":true,"session":2147483499}
-				"magic":"0x1234",
 				"params": {
 						"DoorState":door,
 #						"ShortNumber": "9901#0",
@@ -3551,7 +3582,6 @@ class Dahua_Functions:
 		elif cmd[2] == 'finger':
 			query_args = {
 				"method": "accessControl.captureFingerprint", # working
-				"magic":"0x1234",
 				"params": {
 						},
 				"object": OBJECT,
@@ -3565,7 +3595,6 @@ class Dahua_Functions:
 		elif cmd[2] == 'lift':
 			query_args = {
 				"method": "accessControl.callLift", # Not working
-				"magic":"0x1234",
 				"params": {
 					"Src":1,
 					"DestFloor":3,
@@ -3583,7 +3612,6 @@ class Dahua_Functions:
 		elif cmd[2] == 'password':
 			query_args = {
 				"method": "accessControl.modifyPassword", # working
-				"magic":"0x1234",
 				"params": {
 					"type":"",
 					"user":"",
@@ -3601,7 +3629,6 @@ class Dahua_Functions:
 		elif cmd[2] == 'face':
 			query_args = {
 				"method": "accessControl.openDoorFace", # Not working
-				"magic":"0x1234",
 				"params": {
 					"Status":"",
 					"MatchInfo":"",
@@ -3977,7 +4004,6 @@ class Dahua_Functions:
 
 		query_args = {
 			"id":self.ID,
-			"magic":"0x1234",
 			"method":"storage.getDeviceAllInfo",
 			"params":None, 
 			"session":self.SessionID
@@ -4000,7 +4026,6 @@ class Dahua_Functions:
 
 			query_args = {
 				"id":self.ID,
-				"magic":"0x1234",
 				"method":"devStorage.getDeviceInfo",
 				"params": None,
 				"object":OBJECT,
@@ -4206,7 +4231,6 @@ class Dahua_Functions:
 
 			query_args = {
 				"id":self.ID,
-				"magic":"0x1234",
 				"method":"configManager.getConfig",
 				"params": {
 					"name":"_DHCloudUpgrade_",
@@ -4217,7 +4241,6 @@ class Dahua_Functions:
 
 			query_args = {
 				"id":self.ID,
-				"magic":"0x1234",
 				"method":"configManager.getConfig",
 				"params": {
 					"name":"_DHCloudUpgradeRecord_",
@@ -4441,7 +4464,6 @@ class Dahua_Functions:
 
 			query_args = {
 				"method":"magicBox.setEnv",
-				"magic":"0x1234",
 				"params": {
 					"name":cmd[2],
 					"value":cmd[3],
@@ -4458,7 +4480,6 @@ class Dahua_Functions:
 
 			query_args = {
 				"method":"magicBox.getBootParameter",
-				"magic":"0x1234",
 				"params": {
 					"names":[
 						"algorithm",
@@ -4592,7 +4613,6 @@ class Dahua_Functions:
 			method = "magicBox.getBootParameter"		# working too
 			query_args = {
 				"method":method,
-				"magic":"0x1234",
 				"params": {
 					"names":[cmd[2]],					# needed for magicBox.getBootParameter
 #					"name":cmd[2],						# needed for magicBox.getEnv
@@ -4606,6 +4626,8 @@ class Dahua_Functions:
 			return True
 
 		data = self.SendCall(query_args,errorcodes=True)
+		if not data:
+			return False
 		if data.get('result'):
 			print(json.dumps(data,indent=4))
 		elif not data.get('result'):
@@ -4653,7 +4675,6 @@ class Dahua_Functions:
 
 			query_args = {
 				"id":self.ID,
-				"magic":"0x1234",
 				"method":"deviceDiscovery.stop",
 				"params": None,
 				"object":OBJECT,
@@ -4680,7 +4701,6 @@ class Dahua_Functions:
 
 			query_args = {
 				"id":self.ID,
-				"magic":"0x1234",
 				"method":"deviceDiscovery.start",
 				"params": {
 					"timeout":"15",
@@ -4714,7 +4734,6 @@ class Dahua_Functions:
 
 			query_args = {
 				"id":self.ID,
-				"magic":"0x1234",
 				"method":"deviceDiscovery.ipScan",
 				"params": {
 					"ipBegin":ipBegin,
@@ -4735,7 +4754,6 @@ class Dahua_Functions:
 
 			query_args = {
 				"id":self.ID,
-				"magic":"0x1234",
 				"method":"deviceDiscovery.refresh",
 				"params": {
 					"device":None,
@@ -4758,7 +4776,6 @@ class Dahua_Functions:
 
 			query_args = {
 				"id":self.ID,
-				"magic":"0x1234",
 				"method":"deviceDiscovery.scanDevice",
 				"params": {
 					"ip":["192.168.5.21"],
@@ -4779,7 +4796,6 @@ class Dahua_Functions:
 
 			query_args = {
 				"id":self.ID,
-				"magic":"0x1234",
 				"method":"deviceDiscovery.setConfig",
 				"params": {
 					"mac":"a0:bd:de:ad:be:ef",
@@ -4851,7 +4867,6 @@ class Dahua_Functions:
 
 			query_args = {
 				"id":self.ID,
-				"magic":"0x1234",
 				"method":"NetworkSnifferManager.start",
 				"params": {
 					"networkCard":self.NIC,
@@ -4886,7 +4901,6 @@ class Dahua_Functions:
 
 			query_args = {
 				"id":self.ID,
-				"magic":"0x1234",
 				"method":"NetworkSnifferManager.getSnifferInfo",
 				"params":{
 					"condition": {
@@ -4925,7 +4939,6 @@ class Dahua_Functions:
 
 			query_args = {
 				"id":self.ID,
-				"magic":"0x1234",
 				"method":"NetworkSnifferManager.stop",
 				"params":{
 					"networkSnifferID":self.networkSnifferID,
@@ -5000,7 +5013,6 @@ class Dahua_Functions:
 
 				query_args = {
 					"id":self.ID,
-					"magic":"0x1234",
 					"method": "InterimRemoteDiagnose.getConfig", 
 					"params":{
 						"name":"InterimRDNfs",
@@ -5014,7 +5026,6 @@ class Dahua_Functions:
 
 				query_args = {
 					"id":self.ID,
-					"magic":"0x1234",
 					"method": "InterimRemoteDiagnose.testNfsStatus", 
 					"params":{
 						},
@@ -5039,7 +5050,6 @@ class Dahua_Functions:
 
 				query_args = {
 					"id":self.ID,
-					"magic":"0x1234",
 					"method": "InterimRemoteDiagnose.getConfig", 
 					"params":{
 						"name":"InterimRDNfs",
@@ -5057,7 +5067,6 @@ class Dahua_Functions:
 
 				query_args = {
 					"id":self.ID,
-					"magic":"0x1234",
 					"method": "InterimRemoteDiagnose.setConfig",
 					"params":{
 						"name":"InterimRDNfs",
@@ -5091,7 +5100,6 @@ class Dahua_Functions:
 
 				query_args = {
 					"id":self.ID,
-					"magic":"0x1234",
 					"method": "InterimRemoteDiagnose.getUStoragePosition", 
 					"params":{
 						},
@@ -5107,7 +5115,6 @@ class Dahua_Functions:
 
 				query_args = {
 					"id":self.ID,
-					"magic":"0x1234",
 					"method": "InterimRemoteDiagnose.setUStoragePosition", 
 					"params":{
 						"UStoragePosition":"/dev/sdb1",
@@ -5137,7 +5144,6 @@ class Dahua_Functions:
 				if cmd[3] == 'get':
 					query_args = {
 						"id":self.ID,
-						"magic":"0x1234",
 						"method": "InterimRemoteDiagnose.getConfig",
 						"params":{
 							"name":"InterimRDNetFilter",
@@ -5159,7 +5165,6 @@ class Dahua_Functions:
 	
 					query_args = {
 						"id":self.ID,
-						"magic":"0x1234",
 						"method": "InterimRemoteDiagnose.getConfig",
 						"params":{
 							"name":"InterimRDNetFilter",
@@ -5185,7 +5190,6 @@ class Dahua_Functions:
 
 					query_args = {
 						"id":self.ID,
-						"magic":"0x1234",
 						"method": "InterimRemoteDiagnose.setConfig",
 						"params":{
 							"name":"InterimRDNetFilter",
@@ -5208,7 +5212,6 @@ class Dahua_Functions:
 
 				query_args = {
 					"id":self.ID,
-					"magic":"0x1234",
 					"method": "InterimRemoteDiagnose.getConfig",
 					"params":{
 						"name":"InterimRDNetFilter",
@@ -5223,7 +5226,6 @@ class Dahua_Functions:
 
 				query_args = {
 					"id":self.ID,
-					"magic":"0x1234",
 					"method":"InterimRemoteDiagnose.startRemoteCapture",	# {"result":true,"params":null,"session":336559066,"id":4}
 					"params":{
 						},
@@ -5238,7 +5240,6 @@ class Dahua_Functions:
 			elif cmd[2] == 'stop':
 				query_args = {
 					"id":self.ID,
-					"magic":"0x1234",
 					"method":"InterimRemoteDiagnose.stopRemoteCapture",		# {"result":true,"params":null,"session":468902923,"id":4}
 					"params":{
 						},
@@ -5267,7 +5268,6 @@ class Dahua_Functions:
 
 				query_args = {
 					"id":self.ID,
-					"magic":"0x1234",
 					"method": "InterimRemoteDiagnose.setConfig",
 					"params":{
 						"name":"InterimRDCoreDump",
@@ -5300,7 +5300,6 @@ class Dahua_Functions:
 
 				query_args = {
 					"id":self.ID,
-					"magic":"0x1234",
 					"method": "InterimRemoteDiagnose.setConfig",
 					"params":{
 						"name":"InterimRDPrint",
@@ -5400,7 +5399,6 @@ class Dahua_Functions:
 				log.info("Caching remote config")
 				query_args = {
 					"method":"configManager.getConfig",
-					"magic":"0x1234",
 					"params": {
 						"name":'All',
 						},
@@ -5609,7 +5607,6 @@ class Dahua_Functions:
 
 		query_args = {
 		"method":"netApp.getNetInterfaces",
-			"magic": "0x1234",
 			"params": {
 			},
 			"object":OBJECT,
@@ -5660,7 +5657,6 @@ class Dahua_Functions:
 
 				query_args = {
 				"method":"netApp.scanWLanDevices",
-				"magic": "0x1234",
 					"params": {
 						"Name":WirelessNIC,
 						"SSID":"",
@@ -5697,7 +5693,6 @@ class Dahua_Functions:
 
 					query_args = {
 					"method":"netApp.scanWLanDevices",
-					"magic": "0x1234",
 						"params": {
 							"Name":WirelessNIC,
 							"SSID":cmd[3],
@@ -5710,7 +5705,6 @@ class Dahua_Functions:
 
 				query_args = {
 					"method": "configManager.getDefault" if cmd[2] == 'reset' else "configManager.getConfig",
-					"magic": "0x1234",
 					"params": {
 						"name": "WLan",
 					},
@@ -5786,7 +5780,6 @@ class Dahua_Functions:
 					while True:
 						query_args = {
 						"method":"netApp.getNetInterfaces",
-							"magic": "0x1234",
 							"params": {
 							},
 							"object":OBJECT,
@@ -5824,7 +5817,6 @@ class Dahua_Functions:
 				for method in netAppmethod:
 					query_args = {
 						"method": method,
-						"magic": "0x1234",
 						"params": {
 							"Name":nic.get('Name'),
 						},
@@ -5836,7 +5828,6 @@ class Dahua_Functions:
 
 				query_args = {
 					"method": "configManager.getConfig",
-					"magic": "0x1234",
 					"params": {
 						"name": "Network",
 					},
@@ -5919,7 +5910,6 @@ class Dahua_Functions:
 
 			query_args = {
 				"method": "netApp.getUPnPStatus",
-				"magic": "0x1234",
 				"params": None,
 				"object":OBJECT,
 				"session": self.SessionID,
@@ -5929,7 +5919,6 @@ class Dahua_Functions:
 
 			query_args = {
 				"method": "configManager.getConfig",
-				"magic": "0x1234",
 				"params": {
 					"name": "UPnP",
 				},
@@ -5974,7 +5963,6 @@ class Dahua_Functions:
 
 				query_args = {
 					"method": "configManager.getConfig",
-					"magic": "0x1234",
 					"params": {
 						"name": "UPnP",
 					},
@@ -6086,7 +6074,7 @@ class Dahua_Functions:
 			"id": self.ID
 		}
 		data = self.SendCall(query_args)
-		if not data.get('result'):
+		if not data or not data.get('result'):
 			log.failure('{} Failed'.format(query_args.get('method')))
 			return False
 
