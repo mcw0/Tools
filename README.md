@@ -4,6 +4,11 @@ Some tools (feedback / bug reports are appreciated)
 Dahua-JSON-Debug-Console-v2.py
 ---
 
+2021-10-06
+
+This project is obsolete:
+Please go to https://github.com/mcw0/DahuaConsole
+
 2021-03-02
 
 Misc bug fixes and tuning for performance of self.P2P()
