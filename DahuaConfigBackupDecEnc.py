@@ -52,7 +52,7 @@ Saved encrypted "configFileExport.backup.enc" (73417)
 
 class AESCipher:
     def __init__(self, key):
-        self.key = key.encode('utf8')
+        self.key = key.encode('UTF-8')
 
     def pad_zero(self, dh_data):
         dh_data += bytes(AES.block_size - (len(dh_data) % AES.block_size))
@@ -168,7 +168,7 @@ def main():
     parser.add_argument(
         '--infile', metavar='\b', required=True, type=str, default=None, help='Encrypted or JSON unencrypted filename')
     parser.add_argument(
-        '--key', metavar='\b', required=True, type=str.upper, default=None, help='Encrypt/Decrypt key')
+        '--key', metavar='\b', required=True, type=str, default=None, help='Encrypt/Decrypt key')
     args = parser.parse_args()
 
     file = read_file(args.infile, 25)
