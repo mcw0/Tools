@@ -115,7 +115,7 @@ def dh_backup(mode, file_name, key):
             """dh_char_string looks fixed to '1', assuming it means 1'st char in the 'dh_string'"""
             gen_key = generate_backup_key(key, dh_char_string=file[8] - 1)
             out = AESCipher(gen_key).ecb_decrypt(file[offset:])
-            dh_size = unpack('i', out[1:5])[0]
+            dh_size = unpack('I', out[1:5])[0]
             md5sum = out[dh_size + 5:].strip(b"\x00").decode('UTF-8')  # including 5 bytes header
             if not md5sum == md5(out[:dh_size + 5]).hexdigest().upper():
                 print(f'[!] MD5 mismatch, decryption failed (correct key?)')
@@ -136,14 +136,14 @@ def dh_backup(mode, file_name, key):
             """dh_char_string looks fixed to '1', assuming it means 1'st char in the 'dh_string'"""
             gen_key = generate_backup_key(key, dh_char_string=version - 1)
             out = AESCipher(gen_key)
-            config = pack('b', 1)
+            config = pack('B', 1)
             config += pack('I', dh_size)
             config += file
             md5sum = md5(config).hexdigest().upper().encode('latin-1')
             config += md5sum
             config = out.pad_zero(config)
             out = out.ecb_encrypt(config)
-            out = b'MWPZWJGS' + pack('i', version) + out
+            out = b'MWPZWJGS' + pack('I', version) + out
             if not file_name.rfind('.dec') == -1:
                 file_name = file_name[:file_name.rfind('.dec')]
             written = write_file(file_name + '.enc', out)
