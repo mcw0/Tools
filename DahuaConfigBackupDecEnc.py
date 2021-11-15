@@ -143,7 +143,7 @@ def dh_backup(mode, file_name, key):
             config += md5sum
             config = out.pad_zero(config)
             out = out.ecb_encrypt(config)
-            out = b'MWPZWJGS' + pack('I', version) + out
+            out = b'MWPZWJGS' + pack('B', version) + out
             if not file_name.rfind('.dec') == -1:
                 file_name = file_name[:file_name.rfind('.dec')]
             written = write_file(file_name + '.enc', out)
