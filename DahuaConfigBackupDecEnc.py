@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 import json
+import gzip
+import base64
 import argparse
 from hashlib import md5
 from Crypto.Cipher import AES
@@ -8,7 +10,11 @@ from struct import pack, unpack
 
 """
 Author: bashis <mcw noemail eu> (2021) 
-Tested: IPC/VTO/SD
+
+[Update]
+January 2022: Added support for NVR; Use "--key nvr"
+
+Tested: IPC/VTO/SD/NVR
 
 -[Get _possible_ key with 'DahuaConsole' (https://github.com/mcw0/DahuaConsole)]-
 
@@ -49,6 +55,9 @@ Calculated MD5: B218592EA84B55319A40C064D91FD6C2
 Saved encrypted "configFileExport.backup.enc" (73417)
 """
 
+"""Might have other gzip/base64 in the future"""
+dh_gzip = ['nvr']
+
 
 class AESCipher:
     def __init__(self, key):
@@ -87,7 +96,21 @@ def write_file(dh_name, dh_data):
         return None
 
 
+def generate_key(clear_text):
+    key = ''
+    num = 0
+    """Dahua obfuscation"""
+    for char in range(0, len(clear_text)):
+        num += 1
+        key += chr(ord(clear_text[char]) ^ num)
+
+    return md5(key.encode('latin-1')).hexdigest()
+
+
 def generate_backup_key(clear_text, dh_char_string):
+    if clear_text == 'nvr':
+        return generate_key('DahuaNVR')
+
     dh_string = "yaojinfucrang,yixitgchuanfei.vhuanglaiwaerqingfemgsheng,qiangeningerbaiyune.tuiyuanlvzbu," \
                 "qilingxengzezhizfn;yeshuilhuhua,guakgzhaolinqhuanzhibi.zimeiju,ebnanbing."
     key = clear_text.encode('UTF-8')
@@ -114,21 +137,23 @@ def dh_backup(mode, file_name, key):
         if mode == 'decrypt':
             """dh_char_string looks fixed to '1', assuming it means 1'st char in the 'dh_string'"""
             gen_key = generate_backup_key(key, dh_char_string=file[8] - 1)
-            out = AESCipher(gen_key).ecb_decrypt(file[offset:])
+            out = AESCipher(gen_key).ecb_decrypt(base64.b64decode(file[9:]) if key in dh_gzip else file[offset:])
             dh_size = unpack('I', out[1:5])[0]
-            md5sum = out[dh_size + 5:].strip(b"\x00").decode('UTF-8')  # including 5 bytes header
-            if not md5sum == md5(out[:dh_size + 5]).hexdigest().upper():
+            md5sum = out[dh_size + 5:].strip(b"\x00").decode('UTF-8').lower()  # including 5 bytes header
+            if not md5sum == md5(out[:dh_size + 5]).hexdigest().lower():
                 print(f'[!] MD5 mismatch, decryption failed (correct key?)')
                 return False
             if not file_name.rfind('.enc') == -1:
                 file_name = file_name[:file_name.rfind('.enc')]
-            written = write_file(file_name + '.dec', out[5:dh_size + 5])
+            if not file_name.rfind('.tgz') == -1:
+                file_name = file_name[:file_name.rfind('.tgz')]
+            written = write_file(file_name + '.tgz' if key in dh_gzip else '.dec', out[5:dh_size + 5])
 
             print(f'Version: {out[0]}')
             print(f'Config size   : {dh_size}')
             print(f'Provided MD5  : {md5sum}')
-            print(f'Calculated MD5: {md5(out[:dh_size + 5]).hexdigest().upper()}')
-            print(f'Saved decrypted "{file_name + ".dec"}" ({written} bytes)')
+            print(f'Calculated MD5: {md5(out[:dh_size + 5]).hexdigest().lower()}')
+            print(f'Saved decrypted "{file_name + ".tgz" if key in dh_gzip else ".dec"}" ({written} bytes)')
             return True
         elif mode == 'encrypt':
             version = 1
@@ -139,24 +164,30 @@ def dh_backup(mode, file_name, key):
             config = pack('B', 1)
             config += pack('I', dh_size)
             config += file
-            md5sum = md5(config).hexdigest().upper().encode('latin-1')
+            if key in dh_gzip:
+                md5sum = md5(config).hexdigest().lower().encode('latin-1')
+            else:
+                md5sum = md5(config).hexdigest().upper().encode('latin-1')
             config += md5sum
             config = out.pad_zero(config)
             out = out.ecb_encrypt(config)
-            out = b'MWPZWJGS' + pack('B', version) + out
+            if key in dh_gzip:
+                out = base64.b64encode(out) + b'\x00'
+            out = b'MWPZWJGS' + str(version).encode() + out
+
             if not file_name.rfind('.dec') == -1:
                 file_name = file_name[:file_name.rfind('.dec')]
-            written = write_file(file_name + '.enc', out)
+
+            written = write_file(file_name + '.backup' if key in dh_gzip else '.enc', out)
 
             print(f'Version: {version}')
             print(f'Config size   : {dh_size}')
-            md5sum = md5sum.decode('latin-1')
+            md5sum = md5sum.decode('latin-1').lower()
             print(f'Calculated MD5: {md5sum}')
-            print(f'Saved encrypted "{file_name + ".enc"}" ({written})')
+            print(f'Saved encrypted "{file_name + ".backup" if key in dh_gzip else ".enc"}" ({written})')
             return True
     except ValueError as e:
         print(f'Error: {e}')
-        # TODO: NVR has base64 encodes backups, and seems not to share same key system for encryption/decryption
         return False
 
 
@@ -178,6 +209,9 @@ def main():
         print(f'[!] File "{args.infile}" is empty')
         return False
 
+    if args.key.lower() == 'nvr':
+        args.key = 'nvr'
+
     #          bVar1 = std::operator==(param_4,"VTHRemoteIPCInfo");
     #          if (bVar1 == false) {
     #            pcVar11 = "MWPZWJGS";
@@ -189,11 +223,19 @@ def main():
         print(f'Decrypt "{args.infile}", key: {args.key}')
         return dh_backup('decrypt', args.infile, args.key)
     else:
-        try:
-            json.loads(read_file(args.infile))
-        except ValueError:
-            print('[!] Input not valid JSON file')
-            return False
+        if args.key in dh_gzip:
+            try:
+                gzip.decompress(read_file(args.infile))
+            except gzip.BadGzipFile as e:
+                print(e)
+                print('[!] Input not valid GZIP file')
+                return False
+        else:
+            try:
+                json.loads(read_file(args.infile))
+            except ValueError:
+                print('[!] Input not valid JSON file')
+                return False
         print(f'Encrypt "{args.infile}", key: {args.key}')
         return dh_backup('encrypt', args.infile, args.key)
 
