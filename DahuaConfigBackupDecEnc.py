@@ -174,7 +174,6 @@ def dh_backup(mode, file_name, key):
             if key in dh_gzip:
                 out = base64.b64encode(out) + b'\x00'
             out = b'MWPZWJGS' + (str(version).encode() if key in dh_gzip else pack('B', version)) + out
-            print(out[:10])
 
             if not file_name.rfind('.dec') == -1:
                 file_name = file_name[:file_name.rfind('.dec')]
