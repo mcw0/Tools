@@ -147,13 +147,13 @@ def dh_backup(mode, file_name, key):
                 file_name = file_name[:file_name.rfind('.enc')]
             if not file_name.rfind('.tgz') == -1:
                 file_name = file_name[:file_name.rfind('.tgz')]
-            written = write_file(file_name + '.tgz' if key in dh_gzip else '.dec', out[5:dh_size + 5])
+            written = write_file(file_name + '.tgz' if key in dh_gzip else file_name + '.dec', out[5:dh_size + 5])
 
             print(f'Version: {out[0]}')
             print(f'Config size   : {dh_size}')
             print(f'Provided MD5  : {md5sum}')
             print(f'Calculated MD5: {md5(out[:dh_size + 5]).hexdigest().lower()}')
-            print(f'Saved decrypted "{file_name + ".tgz" if key in dh_gzip else ".dec"}" ({written} bytes)')
+            print(f'Saved decrypted "{file_name + ".tgz" if key in dh_gzip else file_name + ".dec"}" ({written} bytes)')
             return True
         elif mode == 'encrypt':
             version = 1
@@ -173,18 +173,19 @@ def dh_backup(mode, file_name, key):
             out = out.ecb_encrypt(config)
             if key in dh_gzip:
                 out = base64.b64encode(out) + b'\x00'
-            out = b'MWPZWJGS' + str(version).encode() if key in dh_gzip else pack('B', version) + out
+            out = b'MWPZWJGS' + (str(version).encode() if key in dh_gzip else pack('B', version)) + out
+            print(out[:10])
 
             if not file_name.rfind('.dec') == -1:
                 file_name = file_name[:file_name.rfind('.dec')]
 
-            written = write_file(file_name + '.backup' if key in dh_gzip else '.enc', out)
+            written = write_file(file_name + '.backup' if key in dh_gzip else file_name + '.enc', out)
 
             print(f'Version: {version}')
             print(f'Config size   : {dh_size}')
             md5sum = md5sum.decode('latin-1').lower()
             print(f'Calculated MD5: {md5sum}')
-            print(f'Saved encrypted "{file_name + ".backup" if key in dh_gzip else ".enc"}" ({written})')
+            print(f'Saved encrypted "{file_name + ".backup" if key in dh_gzip else file_name + ".enc"}" ({written})')
             return True
     except ValueError as e:
         print(f'Error: {e}')
@@ -233,7 +234,8 @@ def main():
         else:
             try:
                 json.loads(read_file(args.infile))
-            except ValueError:
+            except ValueError as e:
+                print(e)
                 print('[!] Input not valid JSON file')
                 return False
         print(f'Encrypt "{args.infile}", key: {args.key}')
