@@ -18,7 +18,7 @@ iTuneDVR, February 2023: XVR, tested: DHI-XVR5104HS-I3
 January 2022: Added support for NVR; Use "--key nvr"
 February 2023: Added support for XVR; Use "--key xvr"
 
-Tested: IPC/VTO/SD/NVR
+Tested: IPC/VTO/SD/NVR/XVR
 
 -[Get _possible_ key with 'DahuaConsole' (https://github.com/mcw0/DahuaConsole)]-
 
@@ -217,6 +217,8 @@ def main():
 
     if args.key.lower() == 'nvr':
         args.key = 'nvr'
+    elif args.key.lower() == 'xvr':
+        args.key = 'xvr'
 
     #          bVar1 = std::operator==(param_4,"VTHRemoteIPCInfo");
     #          if (bVar1 == false) {
