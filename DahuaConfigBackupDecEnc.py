@@ -11,8 +11,12 @@ from struct import pack, unpack
 """
 Author: bashis <mcw noemail eu> (2021) 
 
+Contributors:
+iTuneDVR, February 2023: XVR, tested: DHI-XVR5104HS-I3
+
 [Update]
 January 2022: Added support for NVR; Use "--key nvr"
+February 2023: Added support for XVR; Use "--key xvr"
 
 Tested: IPC/VTO/SD/NVR
 
@@ -56,7 +60,7 @@ Saved encrypted "configFileExport.backup.enc" (73417)
 """
 
 """Might have other gzip/base64 in the future"""
-dh_gzip = ['nvr']
+dh_gzip = ['nvr', 'xvr']
 
 
 class AESCipher:
@@ -110,6 +114,8 @@ def generate_key(clear_text):
 def generate_backup_key(clear_text, dh_char_string):
     if clear_text == 'nvr':
         return generate_key('DahuaNVR')
+    elif clear_text == 'xvr':
+        return generate_key('DahuaHCVR')
 
     dh_string = "yaojinfucrang,yixitgchuanfei.vhuanglaiwaerqingfemgsheng,qiangeningerbaiyune.tuiyuanlvzbu," \
                 "qilingxengzezhizfn;yeshuilhuhua,guakgzhaolinqhuanzhibi.zimeiju,ebnanbing."
